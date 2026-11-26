@@ -1,0 +1,78 @@
+services:
+  db:
+    build:
+      context: ../..
+      dockerfile: fixtures/synthetic/Dockerfile.server
+    command: ["python", "/server.py", "8000", "db"]
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      fixture:
+        aliases: [db.example]
+        ipv4_address: 172.31.0.10
+  telemetry:
+    build:
+      context: ../..
+      dockerfile: fixtures/synthetic/Dockerfile.server
+    command: ["python", "/server.py", "9443", "telemetry"]
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      fixture:
+        aliases: [telemetry.example]
+        ipv4_address: 172.31.0.20
+  app:
+    build:
+      context: ../..
+      dockerfile: fixtures/synthetic/Dockerfile.app
+    command: ["python", "/app.py"]
+    environment:
+      VARIANT: ${VARIANT}
+      SECRET_CANARY: ${EGRESSDIFF_TEST_CANARY:-empty}
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes: ["${OUT_DIR}:/out"]
+    depends_on: [db, telemetry]
+    networks:
+      fixture:
+        ipv4_address: 172.31.0.30
+  worker:
+    build:
+      context: ../..
+      dockerfile: fixtures/synthetic/Dockerfile.app
+    command: ["python", "-c", "import time; time.sleep(60)"]
+    profiles: ["multi"]
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      fixture:
+        ipv4_address: 172.31.0.40
+  capture:
+    build:
+      context: ../..
+      dockerfile: fixtures/synthetic/Dockerfile.capture
+    command: ["python", "/capture.py"]
+    environment:
+      VARIANT: ${VARIANT}
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    security_opt: ["no-new-privileges:true"]
+    network_mode: service:app
+    volumes: ["${OUT_DIR}:/out"]
+    depends_on: [app]
+networks:
+  fixture:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
